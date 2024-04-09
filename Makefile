@@ -20,4 +20,4 @@ endif
 	@# Copy distributables
 	cp -R $(DISTRIBUTABLES) dist/$(SLUG)/
 	@# Create vcvplugin package
-	cd dist && tar -c $(SLUG) | zstd -$(ZSTD_COMPRESSION_LEVEL) -o "$(SLUG)"-"$(VERSION)"-$(ARCH_OS_NAME).vcvplugin
+	cd dist && tar -c $(SLUG) | zstd -$(ZSTD_COMPRESSION_LEVEL) -o "$(SLUG)"-"$(VERSION)"-$(ARCH_NAME).vcvplugin

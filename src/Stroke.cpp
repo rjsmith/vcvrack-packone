@@ -1,8 +1,10 @@
 #include "plugin.hpp"
 #include "components/MenuColorLabel.hpp"
 #include "components/MenuColorField.hpp"
+#include "components/MenuColorPicker.hpp"
 #include "ui/ModuleSelectProcessor.hpp"
 #include "ui/keyboard.hpp"
+#include "ui/ViewportHelper.hpp"
 
 namespace StoermelderPackOne {
 namespace Stroke {
@@ -21,6 +23,8 @@ enum class KEY_MODE {
 	S_ZOOM_MODULE_30_SMOOTH = 141,
 	S_ZOOM_MODULE_CUSTOM = 16,
 	S_ZOOM_MODULE_CUSTOM_SMOOTH = 161,
+	S_ZOOM_MODULE_ID = 17,
+	S_ZOOM_MODULE_ID_SMOOTH = 171,
 	S_ZOOM_OUT = 13,
 	S_ZOOM_OUT_SMOOTH = 131,
 	S_ZOOM_TOGGLE = 15,
@@ -197,7 +201,7 @@ struct StrokeModule : Module {
 			json_t* keyJ = json_array_get(keysJ, i);
 			keys[i].button = json_integer_value(json_object_get(keyJ, "button"));
 			keys[i].key = keyFix(json_integer_value(json_object_get(keyJ, "key")));
-			keys[i].mods = json_integer_value(json_object_get(keyJ, "mods")) & (GLFW_MOD_ALT | GLFW_MOD_CONTROL | GLFW_MOD_SHIFT);
+			keys[i].mods = json_integer_value(json_object_get(keyJ, "mods")) & (GLFW_MOD_ALT | RACK_MOD_CTRL | GLFW_MOD_SHIFT);
 			keys[i].mode = (KEY_MODE)json_integer_value(json_object_get(keyJ, "mode"));
 			keys[i].high = json_boolean_value(json_object_get(keyJ, "high"));
 			json_t* dataJ = json_object_get(keyJ, "data");
@@ -329,6 +333,38 @@ struct CmdZoomModuleCustomSmooth : CmdBase {
 		viewportCenterSmooth.process();
 	}
 }; // struct CmdZoomModuleCustomSmooth
+
+
+struct CmdZoomModuleId : CmdBase {
+	std::string* data;
+	float scale;
+	void initialCmd(KEY_MODE keyMode) override {
+		if (*data == "") return;
+		int64_t moduleId = std::stoll(*data);
+		ModuleWidget* mw = APP->scene->rack->getModule(moduleId);
+		if (!mw) return;
+		StoermelderPackOne::Rack::ViewportCenter{mw, scale};
+	}
+}; // struct CmdZoomModuleId
+
+
+struct CmdZoomModuleIdSmooth : CmdBase {
+	std::string* data;
+	float scale;
+	StoermelderPackOne::Rack::ViewportCenterSmooth viewportCenterSmooth;
+	void initialCmd(KEY_MODE keyMode) override {
+		if (*data == "") return;
+		int64_t moduleId = std::stoll(*data);
+		ModuleWidget* mw = APP->scene->rack->getModule(moduleId);
+		if (!mw) return;
+		Vec p = mw->box.size.mult(Vec(1.f - scale, 1.f - scale));
+		viewportCenterSmooth.trigger(mw->box.grow(p), 1.f / APP->window->getLastFrameDuration(), 0.6f);
+	}
+	void step() override {
+		viewportCenterSmooth.process();
+	}
+}; // struct CmdZoomModuleIdSmooth
+
 
 
 struct CmdZoomOut : CmdBase {
@@ -906,6 +942,10 @@ struct KeyContainer : Widget {
 					processCmd<CmdZoomModuleCustom>(&CmdZoomModuleCustom::data, &module->keyTemp->data); break;
 				case KEY_MODE::S_ZOOM_MODULE_CUSTOM_SMOOTH:
 					processCmd<CmdZoomModuleCustomSmooth>(&CmdZoomModuleCustomSmooth::data, &module->keyTemp->data); break;
+				case KEY_MODE::S_ZOOM_MODULE_ID:
+					processCmd<CmdZoomModuleId>(&CmdZoomModuleId::data, &module->keyTemp->data, &CmdZoomModuleId::scale, 0.9f); break;
+				case KEY_MODE::S_ZOOM_MODULE_ID_SMOOTH:
+					processCmd<CmdZoomModuleIdSmooth>(&CmdZoomModuleIdSmooth::data, &module->keyTemp->data, &CmdZoomModuleIdSmooth::scale, 0.95f); break;
 				case KEY_MODE::S_ZOOM_OUT:
 					processCmd<CmdZoomOut>(); break;
 				case KEY_MODE::S_ZOOM_OUT_SMOOTH:
@@ -988,8 +1028,8 @@ struct KeyContainer : Widget {
 	}
 
 	void onButton(const event::Button& e) override {
-		if (module && !module->isBypassed() && (e.button > 2 || (e.mods & (GLFW_MOD_ALT | GLFW_MOD_CONTROL | GLFW_MOD_SHIFT))) != 0) {
-			int e_mods = e.mods & (GLFW_MOD_ALT | GLFW_MOD_CONTROL | GLFW_MOD_SHIFT);
+		if (module && !module->isBypassed() && (e.button > 2 || (e.mods & (GLFW_MOD_ALT | RACK_MOD_CTRL | GLFW_MOD_SHIFT))) != 0) {
+			int e_mods = e.mods & (GLFW_MOD_ALT | RACK_MOD_CTRL | GLFW_MOD_SHIFT);
 
 			if (e.action == GLFW_PRESS) {
 				if (learnIdx >= 0) {
@@ -1032,7 +1072,7 @@ struct KeyContainer : Widget {
 
 	void onHoverKey(const event::HoverKey& e) override {
 		if (module && !module->isBypassed()) {
-			int e_mods = e.mods & (GLFW_MOD_ALT | GLFW_MOD_CONTROL | GLFW_MOD_SHIFT);
+			int e_mods = e.mods & (GLFW_MOD_ALT | RACK_MOD_CTRL | GLFW_MOD_SHIFT);
 			int e_key = keyFix(e.key);
 
 			if (e.action == GLFW_PRESS) {
@@ -1116,7 +1156,7 @@ struct KeyDisplay : StoermelderLedDisplay {
 			color = nvgRGBA(0xef, 0xef, 0xef, 0xff);
 			text = module->keys[idx].key >= 0 ? keyName(module->keys[idx].key) : module->keys[idx].button >= 0 ? string::f("MB %i", module->keys[idx].button + 1) : "";
 			module->lights[StrokeModule<PORTS>::LIGHT_ALT + idx].setBrightness(module->keys[idx].mods & GLFW_MOD_ALT ? 0.7f : 0.f);
-			module->lights[StrokeModule<PORTS>::LIGHT_CTRL + idx].setBrightness(module->keys[idx].mods & GLFW_MOD_CONTROL ? 0.7f : 0.f);
+			module->lights[StrokeModule<PORTS>::LIGHT_CTRL + idx].setBrightness(module->keys[idx].mods & RACK_MOD_CTRL ? 0.7f : 0.f);
 			module->lights[StrokeModule<PORTS>::LIGHT_SHIFT + idx].setBrightness(module->keys[idx].mods & GLFW_MOD_SHIFT ? 0.7f : 0.f);
 		} 
 		StoermelderLedDisplay::step();
@@ -1168,6 +1208,7 @@ struct KeyDisplay : StoermelderLedDisplay {
 
 		struct ViewMenuItem : MenuItem {
 			StrokeModule<PORTS>* module;
+			KeyContainer<PORTS>* keyContainer;
 			int idx;
 			void step() override {
 				rightText = 
@@ -1181,6 +1222,8 @@ struct KeyDisplay : StoermelderLedDisplay {
 					module->keys[idx].mode == KEY_MODE::S_ZOOM_OUT_SMOOTH ||
 					module->keys[idx].mode == KEY_MODE::S_ZOOM_TOGGLE ||
 					module->keys[idx].mode == KEY_MODE::S_ZOOM_TOGGLE_SMOOTH ||
+					module->keys[idx].mode == KEY_MODE::S_ZOOM_MODULE_ID ||
+					module->keys[idx].mode == KEY_MODE::S_ZOOM_MODULE_ID_SMOOTH ||
 					module->keys[idx].mode == KEY_MODE::S_SCROLL_LEFT ||
 					module->keys[idx].mode == KEY_MODE::S_SCROLL_RIGHT ||
 					module->keys[idx].mode == KEY_MODE::S_SCROLL_UP ||
@@ -1190,7 +1233,7 @@ struct KeyDisplay : StoermelderLedDisplay {
 			}
 
 			Menu* createChildMenu() override {
-				struct ModeZoomModuleCustomItem : MenuItem {
+				struct ZoomModuleCustomItem : MenuItem {
 					StrokeModule<PORTS>* module;
 					KEY_MODE mode;
 					int idx;
@@ -1260,13 +1303,64 @@ struct KeyDisplay : StoermelderLedDisplay {
 					}
 				};
 
+				struct ZoomModuleIdItem : ModeMenuItem {
+					KeyContainer<PORTS>* keyContainer;
+					void onAction(const event::Action& e) override {
+						ModeMenuItem::module->keys[ModeMenuItem::idx].mode = ModeMenuItem::mode;
+						ModeMenuItem::module->keys[ModeMenuItem::idx].high = false;
+						ModeMenuItem::module->keys[ModeMenuItem::idx].data = "";
+					}
+
+					Menu* createChildMenu() override {
+						struct LearnItem : MenuItem {
+							KeyContainer<PORTS>* keyContainer;
+							int idx;
+							void onAction(const event::Action& e) override {
+								keyContainer->learnIdx = keyContainer->learnIdxEx = idx;
+								keyContainer->module->keys[idx].data = "";
+								KeyContainer<PORTS>* _keyContainer = keyContainer;
+								std::string* _data = &keyContainer->module->keys[idx].data;
+								auto callback = [_keyContainer,_data](ModuleWidget* mw, Vec pos) {
+									*_data = string::f("%lld", (long long)mw->module->getId());
+									_keyContainer->learnIdx = _keyContainer->learnIdxEx = -1;
+								};
+								keyContainer->moduleSelectProcessor.startLearn(callback);
+							}
+						};
+	
+						if (ModeMenuItem::module->keys[ModeMenuItem::idx].mode == ModeMenuItem::mode) {
+							Menu* menu = new Menu;
+							LearnItem* learnItem = construct<LearnItem>(&MenuItem::text, "Learn module", &LearnItem::keyContainer, keyContainer, &LearnItem::idx, ModeMenuItem::idx);
+							menu->addChild(learnItem);
+
+							if (ModeMenuItem::module->keys[ModeMenuItem::idx].data != "") {
+								int64_t moduleId = std::stoll(ModeMenuItem::module->keys[ModeMenuItem::idx].data);
+								ModuleWidget* mw = APP->scene->rack->getModule(moduleId);
+								if (mw) {
+									std::string name = mw->model->plugin->brand + " " + mw->module->model->name;
+									menu->addChild(new MenuSeparator);
+									menu->addChild(construct<MenuLabel>(&MenuLabel::text, name));
+									menu->addChild(construct<MenuLabel>(&MenuLabel::text, string::f("ID %lld", (long long)mw->module->getId())));
+									menu->addChild(createMenuItem("Center module", "", [mw]() { StoermelderPackOne::Rack::ViewportCenter{mw}; }));
+								}
+							}
+
+							return menu;
+						}
+						return NULL;
+					}
+				};
+
 				Menu* menu = new Menu;
 				menu->addChild(construct<ModeMenuItem>(&MenuItem::text, "Zoom to module", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_MODULE_90));
 				menu->addChild(construct<ModeMenuItem>(&MenuItem::text, "Zoom to module (smooth)", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_MODULE_90_SMOOTH));
 				menu->addChild(construct<ModeMenuItem>(&MenuItem::text, "Zoom to module 1/3", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_MODULE_30));
 				menu->addChild(construct<ModeMenuItem>(&MenuItem::text, "Zoom to module 1/3 (smooth)", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_MODULE_30_SMOOTH));
-				menu->addChild(construct<ModeZoomModuleCustomItem>(&MenuItem::text, "Zoom level to module", &ModeZoomModuleCustomItem::module, module, &ModeZoomModuleCustomItem::idx, idx, &ModeZoomModuleCustomItem::mode, KEY_MODE::S_ZOOM_MODULE_CUSTOM));
-				menu->addChild(construct<ModeZoomModuleCustomItem>(&MenuItem::text, "Zoom level to module (smooth)", &ModeZoomModuleCustomItem::module, module, &ModeZoomModuleCustomItem::idx, idx, &ModeZoomModuleCustomItem::mode, KEY_MODE::S_ZOOM_MODULE_CUSTOM_SMOOTH));
+				menu->addChild(construct<ZoomModuleCustomItem>(&MenuItem::text, "Zoom level to module", &ZoomModuleCustomItem::module, module, &ZoomModuleCustomItem::idx, idx, &ZoomModuleCustomItem::mode, KEY_MODE::S_ZOOM_MODULE_CUSTOM));
+				menu->addChild(construct<ZoomModuleCustomItem>(&MenuItem::text, "Zoom level to module (smooth)", &ZoomModuleCustomItem::module, module, &ZoomModuleCustomItem::idx, idx, &ZoomModuleCustomItem::mode, KEY_MODE::S_ZOOM_MODULE_CUSTOM_SMOOTH));
+				menu->addChild(construct<ZoomModuleIdItem>(&MenuItem::text, "Zoom to specific module", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_MODULE_ID, &ZoomModuleIdItem::keyContainer, keyContainer));
+				menu->addChild(construct<ZoomModuleIdItem>(&MenuItem::text, "Zoom to specific module (smooth)", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_MODULE_ID_SMOOTH, &ZoomModuleIdItem::keyContainer, keyContainer));
+				menu->addChild(new MenuSeparator);
 				menu->addChild(construct<ModeMenuItem>(&MenuItem::text, "Zoom out", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_OUT));
 				menu->addChild(construct<ModeMenuItem>(&MenuItem::text, "Zoom out (smooth)", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_OUT_SMOOTH));
 				menu->addChild(construct<ModeMenuItem>(&MenuItem::text, "Zoom toggle", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::S_ZOOM_TOGGLE));
@@ -1412,8 +1506,15 @@ struct KeyDisplay : StoermelderLedDisplay {
 								json_error_t error;
 								json_t* oJ = json_loads(ModeMenuItem::module->keys[ModeMenuItem::idx].data.c_str(), 0, &error);
 								std::string name = json_string_value(json_object_get(oJ, "name"));
+								int64_t moduleId = json_integer_value(json_object_get(oJ, "moduleId"));
+								ModuleWidget* mw = APP->scene->rack->getModule(moduleId);
+
 								menu->addChild(new MenuSeparator);
-								menu->addChild(construct<MenuLabel>(&MenuLabel::text, name));
+								if (mw) {
+									menu->addChild(construct<MenuLabel>(&MenuLabel::text, name));
+									menu->addChild(construct<MenuLabel>(&MenuLabel::text, string::f("ID %lld", (long long)mw->module->getId())));
+									menu->addChild(createMenuItem("Center module", "", [mw]() { StoermelderPackOne::Rack::ViewportCenter{mw}; }));
+								}
 
 								json_t* keyJ = json_object_get(oJ, "key");
 								json_t* modsJ = json_object_get(oJ, "mods");
@@ -1421,7 +1522,7 @@ struct KeyDisplay : StoermelderLedDisplay {
 									std::string key = keyName(json_integer_value(keyJ));
 									int mods = json_integer_value(modsJ);
 									std::string alt = mods & GLFW_MOD_ALT ? RACK_MOD_ALT_NAME "+" : "";
-									std::string ctrl = mods & GLFW_MOD_CONTROL ? RACK_MOD_CTRL_NAME "+" : "";
+									std::string ctrl = mods & RACK_MOD_CTRL ? RACK_MOD_CTRL_NAME "+" : "";
 									std::string shift = mods & GLFW_MOD_SHIFT ? RACK_MOD_SHIFT_NAME "+" : "";
 									std::string s = string::f("Hotkey: %s%s%s%s", alt.c_str(), ctrl.c_str(), shift.c_str(), key.c_str());
 									menu->addChild(construct<MenuLabel>(&MenuLabel::text, s));
@@ -1472,33 +1573,38 @@ struct KeyDisplay : StoermelderLedDisplay {
 				struct CableColorMenuItem : MenuItem {
 					StrokeModule<PORTS>* module;
 					int idx;
+					NVGcolor color;
+					bool firstRun = true;
+
 					void step() override {
-						rightText = module->keys[idx].mode == KEY_MODE::S_CABLE_COLOR ? "✔ " RIGHT_ARROW : "";
+						if (module->keys[idx].mode == KEY_MODE::S_CABLE_COLOR) {
+							if (firstRun) {
+								color = color::fromHexString(module->keys[idx].data);
+								firstRun = false;
+							}
+							module->keys[idx].data = color::toHexString(color);
+							rightText = "✔ " RIGHT_ARROW;
+						}
 						MenuItem::step();
 					}
+
 					void onAction(const event::Action& e) override {
-						module->keys[idx].mode = KEY_MODE::S_CABLE_COLOR;
-						module->keys[idx].high = false;
-						module->keys[idx].data = color::toHexString(color::BLACK);
+						if (module->keys[idx].mode != KEY_MODE::S_CABLE_COLOR) {
+							module->keys[idx].mode = KEY_MODE::S_CABLE_COLOR;
+							module->keys[idx].high = false;
+							module->keys[idx].data = color::toHexString(color::BLACK);
+						}
 					}
 
 					Menu* createChildMenu() override {
-						struct ColorField : MenuColorField {
-							StrokeModule<PORTS>* module;
-							int idx;
-							void returnColor(NVGcolor color) override {
-								module->keys[idx].data = color::toHexString(color);
-							}
-							NVGcolor initColor() override {
-								return module->keys[idx].data != "" ? color::fromHexString(module->keys[idx].data) : color::BLACK;
-							}
-						};
-
 						if (module->keys[idx].mode == KEY_MODE::S_CABLE_COLOR) {
+							
 							Menu* menu = new Menu;
-							MenuColorLabel* colorLabel = construct<MenuColorLabel>(&MenuColorLabel::fillColor, color::fromHexString(module->keys[idx].data));
-							menu->addChild(colorLabel);
-							menu->addChild(construct<ColorField>(&ColorField::module, module, &MenuColorField::colorLabel, colorLabel, &ColorField::idx, idx));
+							menu->addChild(construct<MenuColorLabel>(&MenuColorLabel::fillColor, &color));
+							menu->addChild(new MenuSeparator);
+							menu->addChild(construct<MenuColorPicker>(&MenuColorPicker::color, &color));
+							menu->addChild(new MenuSeparator);
+							menu->addChild(construct<MenuColorField>(&MenuColorField::color, &color));
 							return menu;
 						}
 						return NULL;
@@ -1558,7 +1664,7 @@ struct KeyDisplay : StoermelderLedDisplay {
 		menu->addChild(construct<ModeMenuItem>(&MenuItem::text, "Toggle", &ModeMenuItem::module, module, &ModeMenuItem::idx, idx, &ModeMenuItem::mode, KEY_MODE::CV_TOGGLE));
 		menu->addChild(new MenuSeparator);
 		menu->addChild(construct<MenuLabel>(&MenuLabel::text, "Commands"));
-		menu->addChild(construct<ViewMenuItem>(&MenuItem::text, "View", &ViewMenuItem::module, module, &ViewMenuItem::idx, idx));
+		menu->addChild(construct<ViewMenuItem>(&MenuItem::text, "View", &ViewMenuItem::module, module, &ViewMenuItem::idx, idx, &ViewMenuItem::keyContainer, keyContainer));
 		menu->addChild(construct<ParamMenuItem>(&MenuItem::text, "Parameters", &ParamMenuItem::module, module, &ParamMenuItem::idx, idx));
 		menu->addChild(construct<ModuleMenuItem>(&MenuItem::text, "Modules", &ModuleMenuItem::module, module, &ModuleMenuItem::idx, idx, &ModuleMenuItem::keyContainer, keyContainer));
 		menu->addChild(construct<CableMenuItem>(&MenuItem::text, "Cables", &CableMenuItem::module, module, &CableMenuItem::idx, idx));
@@ -1607,6 +1713,10 @@ struct KeyDisplay : StoermelderLedDisplay {
 						text = "View: Zoom level to module"; break;
 					case KEY_MODE::S_ZOOM_MODULE_CUSTOM_SMOOTH:
 						text = "View: Zoom level to module (smooth)"; break;
+					case KEY_MODE::S_ZOOM_MODULE_ID:
+						text = "View: Zoom to specific module"; break;
+					case KEY_MODE::S_ZOOM_MODULE_ID_SMOOTH:
+						text = "View: Zoom to specific module (smooth)"; break;
 					case KEY_MODE::S_ZOOM_OUT:
 						text = "View: Zoom out"; break;
 					case KEY_MODE::S_ZOOM_OUT_SMOOTH:

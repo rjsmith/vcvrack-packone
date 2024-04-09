@@ -135,6 +135,9 @@ static ModuleWidget* chooseModel(plugin::Model* model) {
 	assert(moduleWidget);
 	APP->scene->rack->addModuleAtMouse(moduleWidget);
 
+	// Load template preset
+	moduleWidget->loadTemplate();
+
 	// Push ModuleAdd history action
 	history::ModuleAdd* h = new history::ModuleAdd;
 	h->name = "create module";
@@ -583,7 +586,7 @@ struct BrowserSearchField : ui::TextField {
 						browser->favorites ^= true;
 						e.consume(this);
 					}
-					if ((e.mods & RACK_MOD_MASK) == GLFW_MOD_CONTROL) {
+					if ((e.mods & RACK_MOD_MASK) == RACK_MOD_CTRL) {
 						ModuleBrowser* browser = getAncestorOfType<ModuleBrowser>();
 						browser->hidden ^= true;
 						setText(string::trim(text));

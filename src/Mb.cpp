@@ -151,6 +151,25 @@ BrowserOverlay::BrowserOverlay() {
 	mbWidgetBackup->hide();
 	APP->scene->removeChild(mbWidgetBackup);
 
+	// Clear all framebuffers of the default module browser - if Rack is shut down after adding MB
+	// the default module browser is deleted after the window and the GL context has been destroyed
+	// This causes Rack crashing on the Framebuffer's destruction.
+	std::list<Widget*> l;
+	l.push_back(mbWidgetBackup);
+	while (!l.empty()) {
+		Widget* w = l.front();
+		l.pop_front();
+		FramebufferWidget* fb = dynamic_cast<FramebufferWidget*>(w);
+		if (fb) {
+			fb->setDirty();
+			fb->deleteFramebuffer();
+		}
+		for (Widget* _w : w->children) {
+			l.push_back(_w);
+		}
+	}
+
+
 	mbV06 = new v06::ModuleBrowser;
 	addChild(mbV06);
 

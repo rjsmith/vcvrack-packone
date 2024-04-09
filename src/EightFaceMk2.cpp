@@ -3,7 +3,9 @@
 #include "helpers/TaskWorker.hpp"
 #include "components/MenuColorLabel.hpp"
 #include "components/MenuColorField.hpp"
+#include "components/MenuColorPicker.hpp"
 #include "ui/ModuleSelectProcessor.hpp"
+#include "ui/ViewportHelper.hpp"
 #include "EightFace.hpp"
 #include "EightFaceMk2Base.hpp"
 #include <random>
@@ -27,7 +29,7 @@ std::string trim(const std::string& s) {
 	return rtrim(ltrim(s));
 }
 
-const int MAX_EXPANDERS = 7;
+const int MAX_EXPANDERS = 15;
 
 enum class SLOTCVMODE {
 	OFF = -1,
@@ -72,6 +74,8 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 	int preset;
 	/** [Stored to JSON] Number of currently active snapshots */
 	int presetCount;
+	/** [Stored to JSON] */
+	bool presetCountLongPress = true;
 
 	/** Total number of snapshots including expanders */
 	int presetTotal;
@@ -258,6 +262,9 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 				resetTimer.reset();
 				switch (slotCvMode) {
 					case SLOTCVMODE::TRIG_FWD:
+					case SLOTCVMODE::TRIG_RANDOM:
+					case SLOTCVMODE::TRIG_RANDOM_WALK:
+					case SLOTCVMODE::TRIG_RANDOM_WO_REPEAT:
 						presetLoad(0);
 						break;
 					case SLOTCVMODE::TRIG_REV:
@@ -287,7 +294,7 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 			if (Module::inputs[INPUT_CV].isConnected()) {
 				switch (slotCvMode) {
 					case SLOTCVMODE::VOLT:
-						presetLoad(std::floor(rescale(Module::inputs[INPUT_CV].getVoltage(), 0.f, 10.f, 0, presetCount)));
+						presetLoad(std::floor(rescale(clamp(Module::inputs[INPUT_CV].getVoltage(), 0.f, 10.f - 1e-6f), 0.f, 10.f, 0, presetCount)));
 						break;
 					case SLOTCVMODE::C4:
 						presetLoad(std::round(clamp(Module::inputs[INPUT_CV].getVoltage() * 12.f, 0.f, presetTotal - 1.f)));
@@ -390,9 +397,11 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 						case LongPressButton::NO_PRESS:
 							break;
 						case LongPressButton::SHORT_PRESS:
-							presetLoad(i, slotCvMode == SLOTCVMODE::ARM, true); break;
+							presetLoad(i, slotCvMode == SLOTCVMODE::ARM, true);
+							break;
 						case LongPressButton::LONG_PRESS:
-							presetSetCount(i + 1); break;
+							if (presetCountLongPress) presetSetCount(i + 1);
+							break;
 					}
 				}
 			}
@@ -409,9 +418,11 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 						case LongPressButton::NO_PRESS:
 							break;
 						case LongPressButton::SHORT_PRESS:
-							presetSave(i); break;
+							presetSave(i);
+							break;
 						case LongPressButton::LONG_PRESS:
-							presetClear(i); break;
+							presetClear(i);
+							break;
 					}
 				}
 			}
@@ -685,6 +696,7 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 		json_object_set_new(rootJ, "slotCvMode", json_integer((int)slotCvMode));
 		json_object_set_new(rootJ, "preset", json_integer(preset));
 		json_object_set_new(rootJ, "presetCount", json_integer(presetCount));
+		json_object_set_new(rootJ, "presetCountLongPress", json_boolean(presetCountLongPress));
 
 		json_object_set_new(rootJ, "boxDraw", json_boolean(boxDraw));
 		json_object_set_new(rootJ, "boxColor", json_string(color::toHexString(boxColor).c_str()));
@@ -709,6 +721,8 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 		slotCvMode = (SLOTCVMODE)json_integer_value(json_object_get(rootJ, "slotCvMode"));
 		preset = json_integer_value(json_object_get(rootJ, "preset"));
 		presetCount = json_integer_value(json_object_get(rootJ, "presetCount"));
+		json_t* presetCountLongPressJ = json_object_get(rootJ, "presetCountLongPress");
+		if (presetCountLongPressJ) presetCountLongPress = json_boolean_value(presetCountLongPressJ);
 
 		boxDraw = json_boolean_value(json_object_get(rootJ, "boxDraw"));
 		json_t* boxColorJ = json_object_get(rootJ, "boxColor");
@@ -751,7 +765,6 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 		}
 		inChange = false;
 
-		BASE::idFixClearMap();
 		BASE::dataFromJson(rootJ);
 		Module::params[PARAM_RW].setValue(0.f);
 
@@ -902,6 +915,63 @@ struct EightFaceMk2Widget : ThemedModuleWidget<EightFaceMk2Module<NUM_PRESETS>> 
 		MODULE* module = dynamic_cast<MODULE*>(this->module);
 		assert(module);
 
+		struct NumberOfSlotsSlider : ui::Slider {
+			struct NumberOfSlotsQuantity : Quantity {
+				MODULE* module;
+				float v = -1.f;
+
+				NumberOfSlotsQuantity(MODULE* module) {
+					this->module = module;
+				}
+				void setValue(float value) override {
+					v = clamp(value, 1.f, float(module->presetTotal));
+					module->presetSetCount(int(v));
+				}
+				float getValue() override {
+					if (v < 0.f) v = module->presetCount;
+					return v;
+				}
+				float getDefaultValue() override {
+					return 8.f;
+				}
+				float getMinValue() override {
+					return 1.f;
+				}
+				float getMaxValue() override {
+					return float(module->presetTotal);
+				}
+				float getDisplayValue() override {
+					return getValue();
+				}
+				std::string getDisplayValueString() override {
+					int i = int(getValue());
+					return string::f("%i", i);
+				}
+				void setDisplayValue(float displayValue) override {
+					setValue(displayValue);
+				}
+				std::string getLabel() override {
+					return "Slots";
+				}
+				std::string getUnit() override {
+					return "";
+				}
+			};
+
+			NumberOfSlotsSlider(MODULE* module) {
+				box.size.x = 160.0;
+				quantity = new NumberOfSlotsQuantity(module);
+			}
+			~NumberOfSlotsSlider() {
+				delete quantity;
+			}
+			void onDragMove(const event::DragMove& e) override {
+				if (quantity) {
+					quantity->moveScaledValue(0.002f * e.mouseDelta.x);
+				}
+			}
+		};
+
 		struct SlotCvModeMenuItem : MenuItem {
 			struct SlotCvModeItem : MenuItem {
 				MODULE* module;
@@ -1041,25 +1111,23 @@ struct EightFaceMk2Widget : ThemedModuleWidget<EightFaceMk2Module<NUM_PRESETS>> 
 				rightText = RIGHT_ARROW;
 			}
 			Menu* createChildMenu() override {
-				struct ColorField : MenuColorField {
-					MODULE* module;
-					NVGcolor initColor() override {
-						return module->boxColor;
-					}
-					void returnColor(NVGcolor color) override {
-						module->boxColor = color;
-					}
-				};
-
 				Menu* menu = new Menu;
-				MenuColorLabel* colorLabel = construct<MenuColorLabel>(&MenuColorLabel::fillColor, module->boxColor);
-				menu->addChild(colorLabel);
-				menu->addChild(construct<ColorField>(&ColorField::module, module, &MenuColorField::colorLabel, colorLabel));
+				menu->addChild(construct<MenuColorLabel>(&MenuColorLabel::fillColor, &module->boxColor));
+				menu->addChild(new MenuSeparator);
+				menu->addChild(construct<MenuColorPicker>(&MenuColorPicker::color, &module->boxColor));
+				menu->addChild(new MenuSeparator);
+				menu->addChild(construct<MenuColorField>(&MenuColorField::color, &module->boxColor));
 				return menu;
 			}
 		};
 
 		menu->addChild(new MenuSeparator());
+		menu->addChild(createSubmenuItem("Number of slots", string::f("%i", module->presetCount),
+			[=](Menu* menu) {
+				menu->addChild(new NumberOfSlotsSlider(module));
+				menu->addChild(createBoolPtrMenuItem("Set by long-press", "", &module->presetCountLongPress));
+			}
+		));
 		menu->addChild(construct<SlotCvModeMenuItem>(&MenuItem::text, "Port CV mode", &SlotCvModeMenuItem::module, module));
 		//menu->addChild(construct<AutoloadMenuItem>(&MenuItem::text, "Autoload", &AutoloadMenuItem::module, module));
 		menu->addChild(new MenuSeparator());

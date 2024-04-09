@@ -136,7 +136,8 @@ struct StripModule : StripModuleBase {
 	}
 
 	void groupDisable(bool val, bool useHistory) {
-		taskWorker.work([=]() { groupDisableWorker(val, useHistory); });
+		//taskWorker.work([=]() { groupDisableWorker(val, useHistory); });
+		taskWorker.work([=]() { groupDisableWorker(val, false); });
 	}
 
 	/** 
@@ -162,11 +163,6 @@ struct StripModule : StripModuleBase {
 				// This is what "Module.hpp" says about bypass:
 				// "Module subclasses should not read/write this variable."
 				APP->engine->bypassModule(m->rightExpander.module, val);
-				// Clear outputs and set to 1 channel
-				for (Output& output : m->rightExpander.module->outputs) {
-					// This zeros all voltages, but the channel is set to 1 if connected
-					output.setChannels(0);
-				}
 
 				if (useHistory) {
 					// history::ModuleBypass
@@ -188,11 +184,6 @@ struct StripModule : StripModuleBase {
 				// This is what "Module.hpp" says about bypass:
 				// "Module subclasses should not read/write this variable."
 				APP->engine->bypassModule(m->leftExpander.module, val);
-				// Clear outputs and set to 1 channel
-				for (Output& output : m->leftExpander.module->outputs) {
-					// This zeros all voltages, but the channel is set to 1 if connected
-					output.setChannels(0);
-				}
 
 				if (useHistory) {
 					// history::ModuleBypass
@@ -242,7 +233,7 @@ struct StripModule : StripModuleBase {
 				if (!mw) return;
 				for (ParamWidget* param : mw->getParams()) {
 					ParamQuantity* paramQuantity = param->getParamQuantity();
-					if (!paramQuantity->randomizeEnabled) continue;
+					if (!paramQuantity || !paramQuantity->randomizeEnabled) continue;
 
 					switch (randomExcl) {
 						case RANDOMEXCL::NONE:
@@ -288,7 +279,7 @@ struct StripModule : StripModuleBase {
 				if (!mw) return;
 				for (ParamWidget* param : mw->getParams()) {
 					ParamQuantity* paramQuantity = param->getParamQuantity();
-					if (!paramQuantity->randomizeEnabled) continue;
+					if (!paramQuantity || !paramQuantity->randomizeEnabled) continue;
 
 					switch (randomExcl) {
 						case RANDOMEXCL::NONE:
@@ -430,10 +421,13 @@ struct ExcludeButton : TL1105 {
 		// Check if a ParamWidget was touched
 		// NB: unstable API
 		ParamWidget* touchedParam = APP->scene->rack->touchedParam;
-		if (touchedParam && touchedParam->getParamQuantity() && touchedParam->getParamQuantity()->module != module) {
-			int64_t moduleId = touchedParam->getParamQuantity()->module->id;
-			int paramId = touchedParam->getParamQuantity()->paramId;
-			groupExcludeParam(moduleId, paramId);
+		if (touchedParam) {
+			ParamQuantity* paramQuantity = touchedParam->getParamQuantity();
+			if (paramQuantity && paramQuantity->module != module) {
+				int64_t moduleId = paramQuantity->module->id;
+				int paramId = paramQuantity->paramId;
+				groupExcludeParam(moduleId, paramId);
+			}
 		}
 	}
 
@@ -483,7 +477,8 @@ struct ExcludeButton : TL1105 {
 				if (m->rightExpander.moduleId == moduleId) {
 					ModuleWidget* mw = APP->scene->rack->getModule(m->rightExpander.moduleId);
 					for (ParamWidget* param : mw->getParams()) {
-						if (param->getParamQuantity() && param->getParamQuantity()->paramId == paramId) {
+						ParamQuantity* paramQuantity = param->getParamQuantity();
+						if (paramQuantity && paramQuantity->paramId == paramId) {
 							// Aquire excludeMutex to get exclusive access to excludedParams
 							std::lock_guard<std::mutex> lockGuard(module->excludeMutex);
 							module->excludedParams.insert(std::make_tuple(moduleId, paramId));
@@ -503,7 +498,8 @@ struct ExcludeButton : TL1105 {
 				if (m->leftExpander.moduleId == moduleId) {
 					ModuleWidget* mw = APP->scene->rack->getModule(m->leftExpander.moduleId);
 					for (ParamWidget* param : mw->getParams()) {
-						if (param->getParamQuantity() && param->getParamQuantity()->paramId == paramId) {
+						ParamQuantity* paramQuantity = param->getParamQuantity();
+						if (paramQuantity && paramQuantity->paramId == paramId) {
 							// Aquire excludeMutex to get exclusive access to excludedParams
 							std::lock_guard<std::mutex> lockGuard(module->excludeMutex);
 							module->excludedParams.insert(std::make_tuple(moduleId, paramId));
@@ -602,11 +598,13 @@ struct ExcludeButton : TL1105 {
 			if (!moduleWidget) continue;
 			ParamWidget* paramWidget = moduleWidget->getParam(paramId);
 			if (!paramWidget) continue;
-			
+			ParamQuantity* paramQuantity = paramWidget->getParamQuantity();
+			if (!paramQuantity) continue;
+
 			std::string text = "Parameter \"";
 			text += moduleWidget->model->name;
 			text += " ";
-			text += paramWidget->getParamQuantity()->getLabel();
+			text += paramQuantity->getLabel();
 			text += "\"";
 
 			ui::MenuLabel* modelLabel = new ui::MenuLabel;

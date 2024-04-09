@@ -1,3 +1,48 @@
+## 2.0.beta4
+
+### Fixes and Changes
+
+- Added panel option to follow Rack's dark panel setting
+- Modules [8FACE, 8FACEx2](./docs/EightFace.md)
+    - Allow disabling of "long-press" for changing the number of active slots (#354)
+- Module [8FACE mk2](./docs/EightFaceMk2.md)
+    - Allow disabling of "long-press" for changing the number of active slots (#354)
+    - Added HSL color picker for bound modules' box
+    - Fixed broken module-id mapping when adding using STRIP or STRIP++
+    - Fixed crash while exceding 0..10V in Volt-mode (#377)
+    - Increased maximum number of expanders to 15
+    - Added missing reset-handling for "Trigger random", "Trigger pseudo-random" and "Trigger random walk"
+- Module [GLUE](./docs/Glue.md)
+    - Added HSL color picker
+- Module [GRIP](./docs/Grip.md)
+    - Fixed broken parameter locking (#360)
+- Module [GOTO](./docs/Goto.md)
+    - Fixed broken zoom behavior when jumping by buttons on the panel
+    - Improved smooth transition speed on long distances (#376)
+- Module [MB](./docs/Mb.md)
+    - Fixed crash on exiting Rack's after adding MB (#352)
+    - Fixed wrong hotkey modifier on Mac (Ctrl instead of Cmd) on Space-key
+    - Added missing template loading after adding a module (#369)
+- Module [ROTOR mod A](./docs/RotorA.md)
+    - Fixed occasional crashes (#365)
+- Module [SAIL](./docs/Sail.md)
+    - Fixed occasional crash (#358)
+- Module [STRIP](./docs/Strip.md)
+    - Fixed crash in rare cases (Surge-modules) (#366)
+    - Fixed wrong hotkey modifier on Mac (Ctrl instead of Cmd) on Cmd+Shift+L
+- Module [STRIP++](./docs/StripPp.md)
+    - Fixed wrong hotkey modifier on Mac (Ctrl instead of Cmd)
+- Module [STROKE](./docs/Stroke.md)
+    - Added commands "Zoom to specific module" and "Zoom to specific module (smooth)" (#357)
+    - Fixed wrong hotkey modifier on Mac (Ctrl instead of Cmd)
+    - Fixed broken "Zoom to module" and "Zoom toggle" commands (#382)
+- Module [SPIN](./docs/Spin.md)
+    - Fixed middle mouse button handling in Rack v2 (#372)
+- Module [TRANSIT](./docs/Transit.md)
+    - Allow disabling of "long-press" for changing the number of active snapshots (#354)
+    - Increased maximum number of expanders to 15 (#381)
+    - Added missing reset-handling for "Trigger random", "Trigger pseudo-random" and "Trigger random walk"
+
 ## 2.0.beta3
 
 ### New modules

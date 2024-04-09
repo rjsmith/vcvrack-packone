@@ -1,17 +1,3 @@
-## 2.x.x (in development)
-
-- Modules [FLOWER, SEEDS, OFFSPRING](./docs/Flower.md)
-    - New modules, pattern-driven 16-step sequencer
-- Module [STRIP-BLOCK](./docs/Strip.md)
-    - New module, a companion module for STRIP for blocking STRIP's expander-mechanism
-
-## 2.1.0 (in development)
-
-### New modules
-
-- Module [PRISMA](./docs/Prisma.md)
-    - A wave multiplier/phase shifter inspired by A-137-2
-
 ## 2.0.beta4
 
 ### Fixes and Changes

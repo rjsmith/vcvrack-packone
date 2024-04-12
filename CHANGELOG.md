@@ -12,6 +12,13 @@
 - Module [PRISMA](./docs/Prisma.md)
     - A wave multiplier/phase shifter inspired by A-137-2
 
+## 2.0.x
+
+### Fixes and Changes
+
+- Module [AFFIX](./docs/Affix.md), [µAFFIX](./docs/Affix.md)
+    - Fixed knob reset on double-click in Semitone/Octave-mode (#387)
+
 ## 2.0.beta4
 
 ### Fixes and Changes

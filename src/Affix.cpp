@@ -136,6 +136,11 @@ struct AffixModule : Module {
 				}
 			}
 		}
+
+		void reset() override {
+			v = std::numeric_limits<float>::max();
+			ParamQuantity::reset();
+		}
 	}; // AffixParamQuantity
 
 

@@ -29,7 +29,7 @@ struct MidiCatCtxModule : MidiCatCtxBase {
 	MidiCatCtxModule() {
 		panelTheme = pluginSettings.panelThemeDefault;
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-		configParam<BufferedTriggerParamQuantity>(PARAM_MAP, 0.f, 1.f, 0.f, "Start parameter mapping");
+		configSwitch<BufferedSwitchQuantity>(PARAM_MAP, 0.f, 1.f, 0.f, "Start parameter mapping");
 		onReset();
 	}
 

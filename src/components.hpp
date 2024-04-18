@@ -368,11 +368,11 @@ struct TriggerParamQuantity : ParamQuantity {
 	}
 };
 
-struct BufferedTriggerParamQuantity : TriggerParamQuantity {
+struct BufferedSwitchQuantity : SwitchQuantity {
 	float buffer = false;
 	void setValue(float value) override {
 		if (value >= 1.f) buffer = true;
-		TriggerParamQuantity::setValue(value);
+		SwitchQuantity::setValue(value);
 	}
 	void resetBuffer() {
 		buffer = false;

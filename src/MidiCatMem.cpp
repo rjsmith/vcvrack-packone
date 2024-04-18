@@ -30,9 +30,9 @@ struct MidiCatMemModule : Module {
 	MidiCatMemModule() {
 		panelTheme = pluginSettings.panelThemeDefault;
 		config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-		configParam<BufferedTriggerParamQuantity>(PARAM_PREV, 0.f, 1.f, 0.f, "Scan for previous module mapping");
-		configParam<BufferedTriggerParamQuantity>(PARAM_NEXT, 0.f, 1.f, 0.f, "Scan for next module mapping");
-		configParam<BufferedTriggerParamQuantity>(PARAM_APPLY, 0.f, 1.f, 0.f, "Apply mapping");
+		configSwitch<BufferedSwitchQuantity>(PARAM_PREV, 0.f, 1.f, 0.f, "Scan for previous module mapping");
+		configSwitch<BufferedSwitchQuantity>(PARAM_NEXT, 0.f, 1.f, 0.f, "Scan for next module mapping");
+		configSwitch<BufferedSwitchQuantity>(PARAM_APPLY, 0.f, 1.f, 0.f, "Apply mapping");
 		onReset();
 	}
 

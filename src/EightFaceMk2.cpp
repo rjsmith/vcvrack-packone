@@ -133,7 +133,7 @@ struct EightFaceMk2Module : EightFaceMk2Base<NUM_PRESETS> {
 	EightFaceMk2Module() {
 		BASE::panelTheme = pluginSettings.panelThemeDefault;
 		Module::config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
-		Module::configSwitch(PARAM_RW, 0.0, 2.0, 0.0, "Operating mode", {"Read", "Auto", "Write"});
+		Module::configSwitch(PARAM_RW, 0.f, 2.f, 0.f, "Operating mode", {"Read", "Auto", "Write"});
 		Module::configInput(INPUT_CV, "Slot-selection");
 		Module::inputInfos[INPUT_CV]->description = "Channel 2 can retrigger the current slot in C4 mode";
 		Module::configInput(INPUT_RESET, "Sequencer-mode reset");

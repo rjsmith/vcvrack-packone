@@ -1670,15 +1670,15 @@ struct MidiCatWidget : ThemedModuleWidget<MidiCatModule>, ParamWidgetContextExte
 	MidiCatDisplay* mapWidget;
 
 	Module* expMem;
-	BufferedTriggerParamQuantity* expMemPrevQuantity;
+	BufferedSwitchQuantity* expMemPrevQuantity;
 	dsp::SchmittTrigger expMemPrevTrigger;
-	BufferedTriggerParamQuantity* expMemNextQuantity;
+	BufferedSwitchQuantity* expMemNextQuantity;
 	dsp::SchmittTrigger expMemNextTrigger;
-	BufferedTriggerParamQuantity* expMemParamQuantity;
+	BufferedSwitchQuantity* expMemParamQuantity;
 	dsp::SchmittTrigger expMemParamTrigger;
 
 	MidiCatCtxBase* expCtx;
-	BufferedTriggerParamQuantity* expCtxMapQuantity;
+	BufferedSwitchQuantity* expCtxMapQuantity;
 	dsp::SchmittTrigger expCtxMapTrigger;
 
 	enum class LEARN_MODE {
@@ -1808,11 +1808,11 @@ struct MidiCatWidget : ThemedModuleWidget<MidiCatModule>, ParamWidgetContextExte
 			if (module->expMem != expMem) {
 				expMem = module->expMem;
 				if (expMem) {
-					expMemPrevQuantity = dynamic_cast<BufferedTriggerParamQuantity*>(expMem->paramQuantities[1]);
+					expMemPrevQuantity = dynamic_cast<BufferedSwitchQuantity*>(expMem->paramQuantities[1]);
 					expMemPrevQuantity->resetBuffer();
-					expMemNextQuantity = dynamic_cast<BufferedTriggerParamQuantity*>(expMem->paramQuantities[2]);
+					expMemNextQuantity = dynamic_cast<BufferedSwitchQuantity*>(expMem->paramQuantities[2]);
 					expMemNextQuantity->resetBuffer();
-					expMemParamQuantity = dynamic_cast<BufferedTriggerParamQuantity*>(expMem->paramQuantities[0]);
+					expMemParamQuantity = dynamic_cast<BufferedSwitchQuantity*>(expMem->paramQuantities[0]);
 					expMemParamQuantity->resetBuffer();
 				}
 			}
@@ -1836,7 +1836,7 @@ struct MidiCatWidget : ThemedModuleWidget<MidiCatModule>, ParamWidgetContextExte
 			if (module->expCtx != (Module*)expCtx) {
 				expCtx = dynamic_cast<MidiCatCtxBase*>(module->expCtx);
 				if (expCtx) {
-					expCtxMapQuantity = dynamic_cast<BufferedTriggerParamQuantity*>(expCtx->paramQuantities[0]);
+					expCtxMapQuantity = dynamic_cast<BufferedSwitchQuantity*>(expCtx->paramQuantities[0]);
 					expCtxMapQuantity->resetBuffer();
 				}
 			}

@@ -12,10 +12,12 @@
 - Module [PRISMA](./docs/Prisma.md)
     - A wave multiplier/phase shifter inspired by A-137-2
 
-## 2.0.x
+## 2.0.x (in development)
 
 ### Fixes and Changes
 
+- Module [8FACE mk2](./docs/EightFaceMk2.md)
+    - Added "Auto"-mode besides "Read" and "Write" ([manual](./docs/EightFaceMk2.md#auto-mode)) (#276)
 - Module [AFFIX](./docs/Affix.md), [µAFFIX](./docs/Affix.md)
     - Fixed knob reset on double-click in Semitone/Octave-mode (#387)
 - Module [GOTO](./docs/Goto.md)

@@ -10,7 +10,8 @@ enum MODE {
 	KK_REL = 10,
 	XTOUCH_R1 = 20,
 	XTOUCH_R2 = 21,
-	AKAI_MPD218 = 30
+	AKAI_MPD218 = 30,
+	HERCULES_DJCONTROL_STARLIGHT = 31
 };
 
 struct MidiStepModule : Module {
@@ -158,6 +159,7 @@ struct MidiStepModule : Module {
 			case MODE::BEATSTEP_R2:
 			case MODE::KK_REL:
 			case MODE::AKAI_MPD218:
+			case MODE::HERCULES_DJCONTROL_STARLIGHT:
 			case MODE::XTOUCH_R1: {
 				if (value == uint8_t(127)) decPulseCount[ccs[cc]] += 2;
 				else if (value == uint8_t(126)) decPulseCount[ccs[cc]] += 4;
@@ -410,7 +412,8 @@ struct MidiStepWidget : ThemedModuleWidget<MidiStepModule> {
 				{ MODE::KK_REL, "NI Komplete Kontrol Relative" },
 				{ MODE::XTOUCH_R1, "Behringer X-TOUCH Relative1" },
 				{ MODE::XTOUCH_R2, "Behringer X-TOUCH Relative2" },
-				{ MODE::AKAI_MPD218, "Akai MPD218 INC/DEC 2" }
+				{ MODE::AKAI_MPD218, "Akai MPD218 INC/DEC 2" },
+				{ MODE::HERCULES_DJCONTROL_STARLIGHT, "Hercules DJControl Starlight" }
 			},
 			&module->mode,
 			false

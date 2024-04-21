@@ -1,0 +1,7 @@
+/build
+/dist
+/.idea
+/plugin.dylib
+/plugin.dll
+/plugin.so
+.DS_Store

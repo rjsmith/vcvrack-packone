@@ -9,6 +9,10 @@
 #include "ui/ParamWidgetContextExtender.hpp"
 #include "ui/OverlayMessageWidget.hpp"
 #include <osdialog.h>
+#include <vector>
+#include <iomanip>
+#include <sstream>
+#include <string>
 
 namespace StoermelderPackOne {
 namespace MidiCat {
@@ -29,6 +33,91 @@ struct MidiCatOutput : midi::Output {
 			lastGates[n] = false;
 		}
 	}
+
+    void sendSysEx() {
+        // SysEx
+        midi::Message m;
+        m.bytes.resize(0);
+        // SysEx header byte
+        m.bytes.push_back(0xF0);
+        // SysEx header byte
+        // Electra One MIDI manufacturer Id
+        m.bytes.push_back(0x00);
+        m.bytes.push_back(0x21);
+        m.bytes.push_back(0x45);
+        // Switch command
+        m.bytes.push_back(0x09);
+        // Page
+        m.bytes.push_back(0x0a);
+        // Page 2
+        m.bytes.push_back(0x01);
+        // SysEx closing byte
+        m.bytes.push_back(0xf7);
+
+        INFO("Sending bytes %s", hexStr(m.bytes.data(), m.getSize()).data());
+        sendMessage(m);
+
+   }
+
+   void sendE1ControlUpdate(int id, const char* name, const char* displayValue) {
+        // See https://jansson.readthedocs.io/en/2.12/apiref.html
+        // SysEx
+
+        INFO("Here with id %i, %s and %s", id, name, displayValue);
+        int e1ControllerId = id + 1;
+
+        midi::Message m;
+        m.bytes.resize(0);
+        // SysEx header byte
+        m.bytes.push_back(0xF0);
+        // SysEx header byte
+        // Electra One MIDI manufacturer Id
+        m.bytes.push_back(0x00);
+        m.bytes.push_back(0x21);
+        m.bytes.push_back(0x45);
+        // Update runtime command
+        m.bytes.push_back(0x14);
+        // Control
+        m.bytes.push_back(0x07);
+        // controlId MSB
+        m.bytes.push_back(e1ControllerId & 0x7F);
+        // controlId LSB
+        m.bytes.push_back(e1ControllerId >> 7);
+               // Build control-update-json-data
+        // { "name": name, "value": { "id": "value", "text": displayValue } }
+        json_t* valueJ = json_object();
+        json_object_set_new(valueJ, "text", json_string(displayValue));
+        json_t* rootJ = json_object();
+        json_object_set_new(rootJ, "name", json_string(name));
+        json_object_set_new(rootJ, "value", valueJ);
+        char* json = json_dumps(rootJ, JSON_COMPACT | JSON_ENSURE_ASCII);
+
+        INFO("json %s", json);
+        for( char* it = json; *it; ++it )
+          m.bytes.push_back((uint8_t)*it);
+
+        // SysEx closing byte
+        m.bytes.push_back(0xf7);
+
+        INFO("Sending bytes %s", hexStr(m.bytes.data(), m.getSize()).data());
+        sendMessage(m);
+
+   }
+
+   void sendParamInfo(std::vector<std::string*> param) {
+     INFO("Send param %s", param.at(0)->c_str());
+   }
+
+    std::string hexStr(const uint8_t *data, int len)
+    {
+         std::stringstream ss;
+         ss << std::hex;
+
+         for( int i(0) ; i < len; ++i )
+             ss << std::setw(2) << std::setfill('0') << (int)data[i];
+
+         return ss.str();
+    }
 
 	void setValue(int value, int cc, bool force = false) {
 		if (value == lastValues[cc] && !force)
@@ -195,6 +284,12 @@ struct MidiCatModule : Module, StripIdFixModule {
 			}
 			else {
 				module->midiOutput.setValue(value, cc, current == -1);
+
+				// Get param info
+				//std::vector<std::string*> params = module->getParamInfo(id);
+
+				// Send to E1 via sysex
+				//module->midiOutput.sendParamInfo(params);
 			}
 			if (!sendOnly) current = value;
 		}
@@ -429,6 +524,33 @@ struct MidiCatModule : Module, StripIdFixModule {
 	void onSampleRateChange() override {
 		midiResendDivider.setDivision(APP->engine->getSampleRate() / 2);
 	}
+
+    void sendE1Feedback(int id) {
+
+       INFO("IN sendE1Feedback for %d, mapLen %d", id, mapLen);
+       if (id >= mapLen) return;
+       INFO("paramHandles[id].moduleId %" PRId64 " ", paramHandles[id].moduleId);
+
+       // Update E1 control with mapped parameter name and value
+       if (paramHandles[id].moduleId < 0) return;
+
+       ModuleWidget* mw = APP->scene->rack->getModule(paramHandles[id].moduleId);
+       if (!mw) return;
+
+       Module* m = mw->getModule();
+       if (!m) return;
+       int paramId = paramHandles[id].paramId;
+       if (paramId >= (int)m->params.size()) return;
+
+       INFO("paramId %i", paramId);
+
+       ParamQuantity* paramQuantity = m->paramQuantities[paramId];
+       INFO("Module control name %s, value %s, units %s", paramQuantity->getLabel().c_str(), paramQuantity->getDisplayValueString().c_str(), paramQuantity->getUnit().c_str());
+       std::stringstream ss;
+       ss << paramQuantity->getDisplayValueString() << " " << paramQuantity->getUnit();
+       midiOutput.sendE1ControlUpdate(id, paramQuantity->getLabel().c_str(), ss.str().c_str());
+    }
+
 
 	void process(const ProcessArgs &args) override {
 		ts++;
@@ -681,6 +803,8 @@ struct MidiCatModule : Module, StripIdFixModule {
 						ccs[id].setValue(v, lastValueIn[id] < 0);
 						notes[id].setValue(v, lastValueIn[id] < 0);
 						lastValueOut[id] = v;
+
+						sendE1Feedback(id);
 					}
 				} break;
 
@@ -783,6 +907,39 @@ struct MidiCatModule : Module, StripIdFixModule {
 			ccs[i].resetValue();
 			notes[i].resetValue();
 		}
+	}
+
+	std::vector<std::string*> getParamInfo(int id) {
+		std::vector<std::string*> s;
+
+		INFO("getParamInfo for id %i, mapLen %i ", id, mapLen);
+		if (id >= mapLen) return s;
+
+
+		if (paramHandles[id].moduleId < 0) return s;
+
+		ModuleWidget* mw = APP->scene->rack->getModule(paramHandles[id].moduleId);
+		if (!mw) return s;
+
+		Module* m = mw->getModule();
+		if (!m) return s;
+
+		int paramId = paramHandles[id].paramId;
+		if (paramId >= (int)m->params.size()) return s;
+
+		ParamQuantity* paramQuantity = m->paramQuantities[paramId];
+//		s.push_back(new OscArgString(mw->model->name));
+//		s.push_back(new OscArgFloat(paramQuantity->toScaled(paramQuantity->getDefaultValue())));
+		s.push_back(new std::string(paramQuantity->getLabel()));
+//		s.push_back(new OscArgString(paramQuantity->getDisplayValueString()));
+//		s.push_back(new OscArgString(paramQuantity->getUnit()));
+
+		return s;
+	}
+
+	void changeE1Page() {
+	    INFO("changeE1page");
+	    midiOutput.sendSysEx();
 	}
 
 	void clearMap(int id, bool midiOnly = false) {
@@ -2206,6 +2363,10 @@ struct MidiCatWidget : ThemedModuleWidget<MidiCatModule>, ParamWidgetContextExte
 			}
 		));
 		menu->addChild(createMenuItem("Import MIDI-MAP preset", "", [=]() { loadMidiMapPreset_dialog(); }));
+
+        // Test E1 menu
+        menu->addChild(new MenuSeparator());
+        menu->addChild(createMenuItem("Change E1 page", "", [=]() { module->changeE1Page(); }));
 
 		menu->addChild(new MenuSeparator());
 		menu->addChild(createSubmenuItem("User interface", "",

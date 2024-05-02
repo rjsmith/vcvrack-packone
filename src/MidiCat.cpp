@@ -444,6 +444,11 @@ struct MidiCatModule : Module, StripIdFixModule {
 	/** [Stored to JSON] */
 	bool clearMapsOnLoad;
 
+    // Flags to indicate command received from E1
+    bool e1TriggerNext;
+    bool e1TriggerPrev;
+
+    // E1 Process flags
     int sendE1EndMessage;
 
 	/** [Stored to Json] The mapped param handle of each channel */
@@ -908,12 +913,73 @@ struct MidiCatModule : Module, StripIdFixModule {
 					// Many keyboards send a "note on" command with 0 velocity to mean "note release"
 					return midiNoteRelease(msg);
 				}
-			} 
+			}
+			// sysex
+			case 0xf: {
+			  return e1SysEx(msg);
+			}
 			default: {
 				return false;
 			}
 		}
 	}
+
+    /**
+     * Parses VCVRack E1 Sysex sent from the Electra One
+     * Message Format:
+     *
+     * Byte(s)
+     * =======
+     * [0 ]        0xF0 SysEx header byte
+     * [1-3]       0x00 0x7F 0x7F Placeholder MIDI Manufacturer Id
+     * [4]         0x01 Command
+     * [...]
+     * [end]       0xF7 SysEx end byte
+     * ---
+     * Command: Next
+     * [5]         0x01 Next
+     *
+     * Command: Prev
+     * [5]          0x02 Prev
+
+
+     */
+    bool e1SysEx(midi::Message msg) {
+        INFO("Got a SysEx message %s", msg.toString().c_str());
+
+        if (msg.getSize() < 7)
+            return false;
+        // Check this is one of our SysEx messages from our E1 preset
+        if (msg.bytes.at(1) != 0x00 || msg.bytes.at(2) != 0x7f || msg.bytes.at(3) != 0x7f)
+            return false;
+
+        switch(msg.bytes.at(4)) {
+            // Command
+            case 0x01: {
+                switch(msg.bytes.at(5)) {
+                    // Next
+                    case 0x01: {
+                        INFO("Received a Next Command");
+                        e1TriggerNext = true;
+                        return true;
+                    }
+                    // Prev
+                    case 0x02: {
+                        INFO("Received a Prev Command");
+                        e1TriggerPrev = true;
+                        return true;
+                    }
+                    default: {
+                        return false;
+                    }
+                }
+            }
+            default: {
+                return false;
+            }
+        }
+
+    }
 
 	bool midiCc(midi::Message msg) {
 		uint8_t cc = msg.getNote();
@@ -2058,11 +2124,13 @@ struct MidiCatWidget : ThemedModuleWidget<MidiCatModule>, ParamWidgetContextExte
 				}
 			}
 			if (expMem) {
-				if (expMemPrevTrigger.process(expMemPrevQuantity->buffer)) {
+				if (module->e1TriggerPrev || expMemPrevTrigger.process(expMemPrevQuantity->buffer)) {
+				    module->e1TriggerPrev = false;
 					expMemPrevQuantity->resetBuffer();
 					expMemPrevModule();
 				}
-				if (expMemNextTrigger.process(expMemNextQuantity->buffer)) {
+				if (module->e1TriggerNext || expMemNextTrigger.process(expMemNextQuantity->buffer)) {
+				    module->e1TriggerNext = false;
 					expMemNextQuantity->resetBuffer();
 					expMemNextModule();
 				}

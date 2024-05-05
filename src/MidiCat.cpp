@@ -71,16 +71,44 @@ struct MidiCatOutput : midi::Output {
 	}
 };
 
+struct E1MappedModuleListItem {
+    public:
+        E1MappedModuleListItem(
+            const std::string &moduleKey,
+            const std::string &moduleDisplayName,
+            const float moduleY,
+            const float moduleX) : m_moduleKey(moduleKey), m_moduleDisplayName(moduleDisplayName), m_y(moduleY), m_x(moduleX) {}
+        const std::string &getModuleKey() const { return m_moduleKey; }
+        const std::string &getModuleDisplayName() const { return m_moduleDisplayName; }
+        float getY() const { return m_y; }
+        float getX() const { return m_x; }
+    private:
+        std::string m_moduleKey; // Uniquely identifies the module type (plugin + model)
+        std::string m_moduleDisplayName; // Module display name
+        float m_y; // Module instance rack y position
+        float m_x; // Module instance rack x position
+};
+
 struct E1MidiOutput : MidiCatOutput {
+
+    std::array< uint8_t, 5 > sysExFloatValueBuffer;
+    midi::Message m;
 
     E1MidiOutput() {
 		reset();
+		m.bytes.reserve(512);
+	}
+
+	void reset() {
+		MidiCatOutput::reset();
+		sysExFloatValueBuffer.fill(0x00);
+		m.bytes.clear();
 	}
 
 	 // Test send E1 sysex
     void sendSysEx() {
         // SysEx
-        midi::Message m;
+        m.bytes.clear();
         m.bytes.resize(0);
         // SysEx header byte
         m.bytes.push_back(0xF0);
@@ -110,7 +138,7 @@ struct E1MidiOutput : MidiCatOutput {
         INFO("Here with id %i, %s and %s", id, name, displayValue);
         int e1ControllerId = id + 2;
 
-        midi::Message m;
+        m.bytes.clear();
         m.bytes.resize(0);
         // SysEx header byte
         m.bytes.push_back(0xF0);
@@ -155,10 +183,10 @@ struct E1MidiOutput : MidiCatOutput {
     *
     * updateGroupLabel(1, "New label")
     */
-   void changeE1Module(const char* moduleLabel) {
+   void changeE1Module(const char* moduleDisplayName) {
 
         std::stringstream ss;
-        ss << "changeE1Module(\"" << moduleLabel << "\")";
+        ss << "changeE1Module(\"" << moduleDisplayName << "\")";
         sendE1ExecuteLua(ss.str().c_str());
 
    }
@@ -170,14 +198,49 @@ struct E1MidiOutput : MidiCatOutput {
    }
 
    /**
+    * Sends a series of lua commands to E1 to transmit the list of mapped modules in the current Rack patch.
+    * Pass a begin() and end() of a list or vector of MappedModule objects.
+    */
+   template <class Iterator>
+   void sendModuleList(Iterator begin, Iterator end) {
+
+        // 1. Send a startMappedModuleList lua command
+        startMappedModuleList();
+
+        // 2. Loop over iterator, send a mappedModuleInfo lua command for each
+        for (Iterator it = begin; it != end; ++it) {
+            mappedModuleInfo(*it);
+        }
+
+        // 3. Finish with a endMappedModuleList lua command
+        endMappedModuleList();
+   }
+
+    void startMappedModuleList() {
+        std::stringstream ss;
+        ss << "startMML()";
+        sendE1ExecuteLua(ss.str().c_str());
+    }
+    void mappedModuleInfo(E1MappedModuleListItem& m) {
+        INFO("Module key %s", m.getModuleKey().c_str());
+        std::stringstream ss;
+        ss << "mappedMI(\"" << m.getModuleKey() << "\", \"" << m.getModuleDisplayName() <<  "\", " << string::f("%g", m.getY()) << ", " << string::f("%g", m.getX()) << ")";
+        sendE1ExecuteLua(ss.str().c_str());
+    }
+    void endMappedModuleList() {
+          std::stringstream ss;
+          ss << "endMML()";
+          sendE1ExecuteLua(ss.str().c_str());
+    }
+
+   /**
     * Execute a Lua command on the Electra One
     * @see https://docs.electra.one/developers/midiimplementation.html#execute-lua-command
     */
    void sendE1ExecuteLua(const char* luaCommand) {
         INFO("Execute Lua %s", luaCommand);
 
-        midi::Message m;
-        m.bytes.resize(0);
+        m.bytes.clear();
         // SysEx header byte
         m.bytes.push_back(0xF0);
         // SysEx header byte
@@ -206,13 +269,24 @@ struct E1MidiOutput : MidiCatOutput {
 
     std::string hexStr(const uint8_t *data, int len)
     {
-         std::stringstream ss;
-         ss << std::hex;
+        std::stringstream ss;
+        ss << std::hex;
 
-         for( int i(0) ; i < len; ++i )
+        for( int i(0) ; i < len; ++i )
              ss << std::setw(2) << std::setfill('0') << (int)data[i];
 
-         return ss.str();
+        return ss.str();
+    }
+
+    // Convert c++ float to 5 byte 7-bit byte array
+    void floatToSysEx(float in, std::array<uint8_t, 5> out) {
+        uint32_t as_integer;
+        static_assert(sizeof(in) == sizeof(as_integer), "sizes don't match");
+        std::memcpy(&as_integer, &in, sizeof(as_integer));
+        for (uint8_t i = 0; i < out.size(); ++i) {
+            out[i] = as_integer & 0x7F;
+            as_integer >>= 7;
+        }
     }
 };
 
@@ -444,12 +518,17 @@ struct MidiCatModule : Module, StripIdFixModule {
 	/** [Stored to JSON] */
 	bool clearMapsOnLoad;
 
-    // Flags to indicate command received from E1
+    // Flags to indicate command received from E1 to be processed in widget tick() thread
     bool e1TriggerNext;
     bool e1TriggerPrev;
+    bool e1TriggerSelect;
 
     // E1 Process flags
     int sendE1EndMessage;
+    bool e1ProcessListMappedModules;
+    // Re-usable list of mapped modules
+    std::vector< E1MappedModuleListItem > e1MappedModuleList;
+    size_t INITIAL_MAPPED_MODULE_LIST_SIZE = 100;
 
 	/** [Stored to Json] The mapped param handle of each channel */
 	ParamHandleIndicator paramHandles[MAX_CHANNELS];
@@ -535,6 +614,7 @@ struct MidiCatModule : Module, StripIdFixModule {
 		indicatorDivider.setDivision(2048);
 		midiResendDivider.setDivision(APP->engine->getSampleRate() / 2);
 		onReset();
+		e1MappedModuleList.reserve(INITIAL_MAPPED_MODULE_LIST_SIZE);
 	}
 
 	~MidiCatModule() {
@@ -623,14 +703,6 @@ struct MidiCatModule : Module, StripIdFixModule {
 			midiReceived = midiReceived || r;
 		}
 
-		// Only step channels when some midi event has been received. Additionally
-		// step channels for parameter changes made manually at a lower frequency . Notice
-		// that midi allows about 1000 messages per second, so checking for changes more often
-		// won't lead to higher precision on midi output.
-		if (processDivider.process() || midiReceived) {
-			processMappings(args.sampleTime);
-		}
-
 		// Handle indicators - blinking
 		if (indicatorDivider.process()) {
 			float t = indicatorDivider.getDivision() * args.sampleTime;
@@ -693,6 +765,16 @@ struct MidiCatModule : Module, StripIdFixModule {
 		else {
 			expClkProcess();
 		}
+
+        // Only step channels when some midi event has been received. Additionally
+        // step channels for parameter changes made manually at a lower frequency . Notice
+        // that midi allows about 1000 messages per second, so checking for changes more often
+        // won't lead to higher precision on midi output.
+        if (processDivider.process() || midiReceived) {
+            processMappings(args.sampleTime);
+            processE1Commands();
+        }
+
 	}
 
 	void processMappings(float sampleTime) {
@@ -916,13 +998,65 @@ struct MidiCatModule : Module, StripIdFixModule {
 			}
 			// sysex
 			case 0xf: {
-			  return e1SysEx(msg);
+			  return parseE1SysEx(msg);
 			}
 			default: {
 				return false;
 			}
 		}
 	}
+
+    /**
+     * Additional process() handlers for commands received from E1
+     */
+    void processE1Commands() {
+
+        if (e1ProcessListMappedModules) {
+            e1ProcessListMappedModules = false;
+            sendE1MappedModulesList();
+        }
+    }
+
+    /**
+     * Build list of mapped Rack modules and transmit to E1
+     */
+    void sendE1MappedModulesList() {
+
+        INFO("Getting info for an E1 mapped module list");
+        e1MappedModuleList.clear();
+
+        // Get list of all modules in current Rack, sorted by module y then x position
+        std::list<Widget*> modules = APP->scene->rack->getModuleContainer()->children;
+        auto sort = [&](Widget* w1, Widget* w2) {
+            auto t1 = std::make_tuple(w1->box.pos.y, w1->box.pos.x);
+            auto t2 = std::make_tuple(w2->box.pos.y, w2->box.pos.x);
+            return t1 < t2;
+        };
+        modules.sort(sort);
+        std::list<Widget*>::iterator it = modules.begin();
+
+        e1MappedModuleList.clear();
+        // Scan over all rack modules, determine if each is parameter-mapped
+        for (; it != modules.end(); it++) {
+            ModuleWidget* mw = dynamic_cast<ModuleWidget*>(*it);
+            Module* m = mw->module;
+            if (expMemTest(m)) {
+                // Add module to mapped module list
+                // If there more than one instance of  mapped module in the rack, it will appear in the list multiple time
+                auto key = string::f("%s %s", m->model->plugin->slug.c_str(), m->model->slug.c_str());
+                E1MappedModuleListItem item = {
+                    key,
+                    m->model->name,
+                    mw->box.pos.y,
+                    mw->box.pos.x
+                };
+                e1MappedModuleList.push_back(item);
+            }
+        }
+
+        midiOutput.sendModuleList(e1MappedModuleList.begin(), e1MappedModuleList.end());
+
+    }
 
     /**
      * Parses VCVRack E1 Sysex sent from the Electra One
@@ -937,14 +1071,21 @@ struct MidiCatModule : Module, StripIdFixModule {
      * [end]       0xF7 SysEx end byte
      * ---
      * Command: Next
-     * [5]         0x01 Next
+     * [5]         0x01 Next mapped module
      *
      * Command: Prev
-     * [5]          0x02 Prev
-
-
+     * [5]         0x02 Prev mapped module
+     *
+     * Command: Select
+     * [5]         0x03 Select mapped module
+     * [6-10]      Module rack y position as a 5-byte 7-bit float
+     * [11-15]     Module rack x position as a 5 byte 7-bit float
+     *
+     * Command: List mapped modules
+     * [5]         0x04 List mapped modules
+     *
      */
-    bool e1SysEx(midi::Message msg) {
+    bool parseE1SysEx(midi::Message msg) {
         INFO("Got a SysEx message %s", msg.toString().c_str());
 
         if (msg.getSize() < 7)
@@ -969,6 +1110,19 @@ struct MidiCatModule : Module, StripIdFixModule {
                         e1TriggerPrev = true;
                         return true;
                     }
+                    // Module Select
+                    case 0x03: {
+                        INFO("Received a Module Select Command");
+                        e1TriggerSelect = true;
+                        return true;
+                    }
+                    // List Mapped Modules
+                    case 0x04: {
+                        INFO("Received a List Mapped Modules Command");
+                        e1ProcessListMappedModules = true;
+                        return true;
+                    }
+
                     default: {
                         return false;
                     }

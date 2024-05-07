@@ -519,9 +519,10 @@ struct MidiCatModule : Module, StripIdFixModule {
 	bool clearMapsOnLoad;
 
     // Flags to indicate command received from E1 to be processed in widget tick() thread
-    bool e1TriggerNext;
-    bool e1TriggerPrev;
-    bool e1TriggerSelect;
+    bool e1ProcessNext;
+    bool e1ProcessPrev;
+    bool e1ProcessSelect;
+    math::Vec e1SelectedModulePos;
 
     // E1 Process flags
     int sendE1EndMessage;
@@ -1078,8 +1079,8 @@ struct MidiCatModule : Module, StripIdFixModule {
      *
      * Command: Select
      * [5]         0x03 Select mapped module
-     * [6-10]      Module rack y position as a 5-byte 7-bit float
-     * [11-15]     Module rack x position as a 5 byte 7-bit float
+     * [6-x]      Module rack y position as a length byte + ascii string byte array,
+     * [x+1-y]     Module rack x position as a length byte + ascii string byte array
      *
      * Command: List mapped modules
      * [5]         0x04 List mapped modules
@@ -1101,19 +1102,27 @@ struct MidiCatModule : Module, StripIdFixModule {
                     // Next
                     case 0x01: {
                         INFO("Received a Next Command");
-                        e1TriggerNext = true;
+                        e1ProcessNext = true;
                         return true;
                     }
                     // Prev
                     case 0x02: {
                         INFO("Received a Prev Command");
-                        e1TriggerPrev = true;
+                        e1ProcessPrev = true;
                         return true;
                     }
                     // Module Select
                     case 0x03: {
                         INFO("Received a Module Select Command");
-                        e1TriggerSelect = true;
+                        e1ProcessSelect = true;
+                        // Convert bytes 7 to float
+                        std::vector<uint8_t>::const_iterator vit = msg.bytes.begin() + 6;
+                        float moduleY = floatFromSysEx(vit);
+                        INFO("y = %g", moduleY);
+                        vit++;
+                        float moduleX = floatFromSysEx(vit);
+                        INFO("x = %g", moduleX);
+                        e1SelectedModulePos = Vec(moduleX, moduleY);
                         return true;
                     }
                     // List Mapped Modules
@@ -1133,6 +1142,36 @@ struct MidiCatModule : Module, StripIdFixModule {
             }
         }
 
+    }
+
+    float floatFromSysEx(std::vector<uint8_t>::const_iterator & vit) {
+        // Decode string length byte
+        uint8_t strLen = *vit;
+
+        // Check <= remaining midi message length
+//        if (strLen > remainingMsgLen) return 0.0f;
+        std::string s;
+        // Read string len bytes, convert to string
+        for (int i = 0; i < strLen; ++i) {
+            vit++;
+            uint8_t b = *vit;
+            char c = (char) b;
+            s += c;
+        }
+        // Convert string to float (std::stdof)
+        return std::stof(s);
+
+
+//        uint32_t o = 0;
+//        std::vector<uint8_t> fv(begin, end);
+//        for (std::vector<uint8_t>::reverse_iterator rit = fv.rbegin(); rit != fv.rend(); ++rit) {
+//            o = o + *rit;
+//            o = o << 7;
+//            INFO("rit = %d, o = %d", *rit, o);
+//        }
+//
+//        UInt32ToFloat u2f = {o};
+//        return u2f.f;
     }
 
 	bool midiCc(midi::Message msg) {
@@ -1455,7 +1494,7 @@ struct MidiCatModule : Module, StripIdFixModule {
 		expMemStorage->erase(p);
 	}
 
-	void expMemApply(Module* m) {
+	void expMemApply(Module* m, math::Vec pos = Vec(0,0)) {
 		if (!m) return;
 		auto p = std::pair<std::string, std::string>(m->model->plugin->slug, m->model->slug);
 		auto it = expMemStorage->find(p);
@@ -2278,15 +2317,20 @@ struct MidiCatWidget : ThemedModuleWidget<MidiCatModule>, ParamWidgetContextExte
 				}
 			}
 			if (expMem) {
-				if (module->e1TriggerPrev || expMemPrevTrigger.process(expMemPrevQuantity->buffer)) {
-				    module->e1TriggerPrev = false;
+				if (module->e1ProcessPrev || expMemPrevTrigger.process(expMemPrevQuantity->buffer)) {
+				    module->e1ProcessPrev = false;
 					expMemPrevQuantity->resetBuffer();
 					expMemPrevModule();
 				}
-				if (module->e1TriggerNext || expMemNextTrigger.process(expMemNextQuantity->buffer)) {
-				    module->e1TriggerNext = false;
+				if (module->e1ProcessNext || expMemNextTrigger.process(expMemNextQuantity->buffer)) {
+				    module->e1ProcessNext = false;
 					expMemNextQuantity->resetBuffer();
 					expMemNextModule();
+				}
+				if (module->e1ProcessSelect) {
+				    module->e1ProcessSelect = false;
+				    expMemSelectModule(module->e1SelectedModulePos);
+				    module->e1SelectedModulePos = Vec(0,0);
 				}
 				if (expMemParamTrigger.process(expMemParamQuantity->buffer)) {
 					expMemParamQuantity->resetBuffer();
@@ -2334,6 +2378,31 @@ struct MidiCatWidget : ThemedModuleWidget<MidiCatModule>, ParamWidgetContextExte
 		};
 		modules.sort(sort);
 		expMemScanModules(modules);
+	}
+
+	void expMemSelectModule(math::Vec modulePos) {
+		// Build mapped module list to scan through to
+		std::list<Widget*> modules = APP->scene->rack->getModuleContainer()->children;
+		auto sort = [&](Widget* w1, Widget* w2) {
+			auto t1 = std::make_tuple(w1->box.pos.y, w1->box.pos.x);
+			auto t2 = std::make_tuple(w2->box.pos.y, w2->box.pos.x);
+			return t1 < t2;
+		};
+		modules.sort(sort);
+		std::list<Widget*>::iterator it = modules.begin();
+
+		// Scan over all rack modules, find module at given rack position
+		for (; it != modules.end(); it++) {
+			ModuleWidget* mw = dynamic_cast<ModuleWidget*>(*it);
+			if (modulePos.equals(mw->box.pos)) {
+				Module* m = mw->module;
+			    if (module->expMemTest(m)) {
+			  	    // If module at matched position is mapped in extMem, we can safely apply its current mappings
+				    module->expMemApply(m, mw->box.pos);
+				}
+			    return;
+			}
+		}
 	}
 
 	void expMemScanModules(std::list<Widget*>& modules) {

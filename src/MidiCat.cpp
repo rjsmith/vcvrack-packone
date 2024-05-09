@@ -126,7 +126,7 @@ struct E1MidiOutput : MidiCatOutput {
         // SysEx closing byte
         m.bytes.push_back(0xf7);
 
-        INFO("Sending bytes %s", hexStr(m.bytes.data(), m.getSize()).data());
+        // INFO("Sending bytes %s", hexStr(m.bytes.data(), m.getSize()).data());
         sendMessage(m);
 
    }
@@ -165,14 +165,11 @@ struct E1MidiOutput : MidiCatOutput {
         json_object_set_new(rootJ, "value", valueJ);
         char* json = json_dumps(rootJ, JSON_COMPACT | JSON_ENSURE_ASCII);
 
-        INFO("json %s", json);
         for( char* it = json; *it; ++it )
           m.bytes.push_back((uint8_t)*it);
 
         // SysEx closing byte
         m.bytes.push_back(0xf7);
-
-        INFO("Sending bytes %s", hexStr(m.bytes.data(), m.getSize()).data());
         sendMessage(m);
 
    }
@@ -222,7 +219,6 @@ struct E1MidiOutput : MidiCatOutput {
         sendE1ExecuteLua(ss.str().c_str());
     }
     void mappedModuleInfo(E1MappedModuleListItem& m) {
-        INFO("Module key %s", m.getModuleKey().c_str());
         std::stringstream ss;
         ss << "mappedMI(\"" << m.getModuleKey() << "\", \"" << m.getModuleDisplayName() <<  "\", " << string::f("%g", m.getY()) << ", " << string::f("%g", m.getX()) << ")";
         sendE1ExecuteLua(ss.str().c_str());
@@ -261,10 +257,6 @@ struct E1MidiOutput : MidiCatOutput {
         sendMessage(m);
 
 
-   }
-
-   void sendParamInfo(std::vector<std::string*> param) {
-     INFO("Send param %s", param.at(0)->c_str());
    }
 
     std::string hexStr(const uint8_t *data, int len)
@@ -668,10 +660,7 @@ struct MidiCatModule : Module, StripIdFixModule {
 
     void sendE1Feedback(int id) {
 
-       INFO("IN sendE1Feedback for %d, mapLen %d", id, mapLen);
        if (id >= mapLen) return;
-       INFO("paramHandles[id].moduleId %" PRId64 " ", paramHandles[id].moduleId);
-
        // Update E1 control with mapped parameter name and value
        if (paramHandles[id].moduleId < 0) return;
 
@@ -680,13 +669,11 @@ struct MidiCatModule : Module, StripIdFixModule {
 
        Module* m = mw->getModule();
        if (!m) return;
+       //idx of parameter in target module
        int paramId = paramHandles[id].paramId;
        if (paramId >= (int)m->params.size()) return;
 
-       INFO("paramId %i", paramId);
-
        ParamQuantity* paramQuantity = m->paramQuantities[paramId];
-       INFO("Module control name %s, value %s, units %s", paramQuantity->getLabel().c_str(), paramQuantity->getDisplayValueString().c_str(), paramQuantity->getUnit().c_str());
        std::stringstream ss;
        ss << paramQuantity->getDisplayValueString() << " " << paramQuantity->getUnit();
        midiOutput.sendE1ControlUpdate(ccs[id].getCc(), paramQuantity->getLabel().c_str(), ss.str().c_str());
@@ -941,7 +928,6 @@ struct MidiCatModule : Module, StripIdFixModule {
 
 					// Midi feedback
 					if (lastValueOut[id] != v) {
-					    INFO("lastValueOut[id] = %d, v = %d", lastValueOut[id], v);
 						if (cc >= 0 && ccs[id].ccMode == CCMODE::DIRECT)
 							lastValueIn[id] = v;
 						ccs[id].setValue(v, lastValueIn[id] < 0);
@@ -1023,7 +1009,6 @@ struct MidiCatModule : Module, StripIdFixModule {
      */
     void sendE1MappedModulesList() {
 
-        INFO("Getting info for an E1 mapped module list");
         e1MappedModuleList.clear();
 
         // Get list of all modules in current Rack, sorted by module y then x position
@@ -1108,6 +1093,7 @@ struct MidiCatModule : Module, StripIdFixModule {
                     // Prev
                     case 0x02: {
                         INFO("Received a Prev Command");
+                        e1ProcessNext = false;
                         e1ProcessPrev = true;
                         return true;
                     }
@@ -1118,10 +1104,8 @@ struct MidiCatModule : Module, StripIdFixModule {
                         // Convert bytes 7 to float
                         std::vector<uint8_t>::const_iterator vit = msg.bytes.begin() + 6;
                         float moduleY = floatFromSysEx(vit);
-                        INFO("y = %g", moduleY);
                         vit++;
                         float moduleX = floatFromSysEx(vit);
-                        INFO("x = %g", moduleX);
                         e1SelectedModulePos = Vec(moduleX, moduleY);
                         return true;
                     }
@@ -1149,7 +1133,6 @@ struct MidiCatModule : Module, StripIdFixModule {
         uint8_t strLen = *vit;
 
         // Check <= remaining midi message length
-//        if (strLen > remainingMsgLen) return 0.0f;
         std::string s;
         // Read string len bytes, convert to string
         for (int i = 0; i < strLen; ++i) {
@@ -1160,18 +1143,6 @@ struct MidiCatModule : Module, StripIdFixModule {
         }
         // Convert string to float (std::stdof)
         return std::stof(s);
-
-
-//        uint32_t o = 0;
-//        std::vector<uint8_t> fv(begin, end);
-//        for (std::vector<uint8_t>::reverse_iterator rit = fv.rbegin(); rit != fv.rend(); ++rit) {
-//            o = o + *rit;
-//            o = o << 7;
-//            INFO("rit = %d, o = %d", *rit, o);
-//        }
-//
-//        UInt32ToFloat u2f = {o};
-//        return u2f.f;
     }
 
 	bool midiCc(midi::Message msg) {
@@ -1229,34 +1200,6 @@ struct MidiCatModule : Module, StripIdFixModule {
 			notes[i].resetValue();
 		}
 	}
-
-//	std::vector<std::string*> getParamInfo(int id) {
-//		std::vector<std::string*> s;
-//
-//		INFO("getParamInfo for id %i, mapLen %i ", id, mapLen);
-//		if (id >= mapLen) return s;
-//
-//
-//		if (paramHandles[id].moduleId < 0) return s;
-//
-//		ModuleWidget* mw = APP->scene->rack->getModule(paramHandles[id].moduleId);
-//		if (!mw) return s;
-//
-//		Module* m = mw->getModule();
-//		if (!m) return s;
-//
-//		int paramId = paramHandles[id].paramId;
-//		if (paramId >= (int)m->params.size()) return s;
-//
-//		ParamQuantity* paramQuantity = m->paramQuantities[paramId];
-////		s.push_back(new OscArgString(mw->model->name));
-////		s.push_back(new OscArgFloat(paramQuantity->toScaled(paramQuantity->getDefaultValue())));
-//		s.push_back(new std::string(paramQuantity->getLabel()));
-////		s.push_back(new OscArgString(paramQuantity->getDisplayValueString()));
-////		s.push_back(new OscArgString(paramQuantity->getUnit()));
-//
-//		return s;
-//	}
 
 	void changeE1Page() {
 	    INFO("changeE1page");

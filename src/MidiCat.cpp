@@ -135,7 +135,6 @@ struct E1MidiOutput : MidiCatOutput {
         // See https://jansson.readthedocs.io/en/2.12/apiref.html
         // SysEx
 
-        INFO("Here with id %i, %s and %s", id, name, displayValue);
         int e1ControllerId = id + 2;
 
         m.bytes.clear();
@@ -300,12 +299,14 @@ struct MidiCatParam : ScaledMapParam<int> {
 
 	int setValueDeffered;
 	int getValueLast;
+	bool resetToDefault;
 
 	void reset(bool resetSettings = true) override {
 		if (resetSettings) {
 			clockMode = CLOCKMODE::OFF;
 			clockSource = 0;
 		}
+		resetToDefault = false;
 		ScaledMapParam<int>::reset(resetSettings);
 	}
 
@@ -355,6 +356,22 @@ struct MidiCatParam : ScaledMapParam<int> {
 
 		return r;
 	}
+
+    void setValueToDefault() {
+	    Param* param = paramQuantity->getParam();
+        if (param) {
+            resetToDefault = true;
+        }
+	}
+
+	void process(float sampleTime = -1.f, bool force = false) override {
+        if (resetToDefault) {
+            paramQuantity->reset();
+            resetToDefault = false;
+            return;
+        }
+        ScaledMapParam<int>::process(sampleTime, force);
+    }
 };
 
 
@@ -522,6 +539,8 @@ struct MidiCatModule : Module, StripIdFixModule {
     // Re-usable list of mapped modules
     std::vector< E1MappedModuleListItem > e1MappedModuleList;
     size_t INITIAL_MAPPED_MODULE_LIST_SIZE = 100;
+    bool e1ProcessResetParameter;
+    int e1ProcessResetParameterCC;
 
 	/** [Stored to Json] The mapped param handle of each channel */
 	ParamHandleIndicator paramHandles[MAX_CHANNELS];
@@ -652,6 +671,12 @@ struct MidiCatModule : Module, StripIdFixModule {
 		processDivider.reset();
 		overlayEnabled = true;
 		clearMapsOnLoad = false;
+		
+		e1ProcessNext = false;
+		e1ProcessPrev = false;
+		e1ProcessSelect = false;
+		e1ProcessListMappedModules = false;
+		e1ProcessResetParameter = false;
 	}
 
 	void onSampleRateChange() override {
@@ -793,8 +818,8 @@ struct MidiCatModule : Module, StripIdFixModule {
 					midiParam[id].paramQuantity = paramQuantity;
 					int t = -1;
 
-					// Check if CC value has been set and changed
-					if (cc >= 0 && ccs[id].process()) {
+                    if (!e1ProcessResetParameter && cc >= 0 && ccs[id].process()) {
+					    // Check if CC value has been set and changed
 						switch (ccs[id].ccMode) {
 							case CCMODE::DIRECT:
 								if (lastValueIn[id] != ccs[id].getValue()) {
@@ -913,9 +938,15 @@ struct MidiCatModule : Module, StripIdFixModule {
 								break;
 						}
 					}
+                    int v;
 
 					// Set a new value for the mapped parameter
-					if (t >= 0) {
+					if (e1ProcessResetParameter && cc == e1ProcessResetParameterCC) {
+                        midiParam[id].setValueToDefault();
+                        e1ProcessResetParameterCC = -1;
+                        lastValueOut[id] = -1;
+
+                    } else if (t >= 0) {
 						midiParam[id].setValue(t);
 						if (overlayEnabled && overlayQueue.capacity() > 0) overlayQueue.push(id);
 					}
@@ -924,16 +955,19 @@ struct MidiCatModule : Module, StripIdFixModule {
 					midiParam[id].process(st);
 
 					// Retrieve the current value of the parameter (ignoring slew and scale)
-					int v = midiParam[id].getValue();
+					v = midiParam[id].getValue();
 
 					// Midi feedback
 					if (lastValueOut[id] != v) {
-						if (cc >= 0 && ccs[id].ccMode == CCMODE::DIRECT)
+
+						if (!e1ProcessResetParameter && cc >= 0 && ccs[id].ccMode == CCMODE::DIRECT)
 							lastValueIn[id] = v;
+				        // Send manually altered parameter change out to MIDI
 						ccs[id].setValue(v, lastValueIn[id] < 0);
 						notes[id].setValue(v, lastValueIn[id] < 0);
 						lastValueOut[id] = v;
 						sendE1Feedback(id);
+                        e1ProcessResetParameter = false;
 
 						// Send end of mapping message, when switching between saved module mappings
 						if (sendE1EndMessage > 0 && mapLen - 2 == id) {
@@ -1070,10 +1104,12 @@ struct MidiCatModule : Module, StripIdFixModule {
      * Command: List mapped modules
      * [5]         0x04 List mapped modules
      *
+     * Command: Reset mapped parameter to its default
+     * [5]         0x05 Reset Parameter
+     * [6]         CC id (0-127)
+     *
      */
     bool parseE1SysEx(midi::Message msg) {
-        INFO("Got a SysEx message %s", msg.toString().c_str());
-
         if (msg.getSize() < 7)
             return false;
         // Check this is one of our SysEx messages from our E1 preset
@@ -1115,7 +1151,13 @@ struct MidiCatModule : Module, StripIdFixModule {
                         e1ProcessListMappedModules = true;
                         return true;
                     }
-
+                    // Reset parameter to its default
+                    case 0x05: {
+                        e1ProcessResetParameter = true;
+                        e1ProcessResetParameterCC = (int) msg.bytes.at(6);
+                        INFO("Received a Reset Parameter Command for CC %d", e1ProcessResetParameterCC);
+                        return true;
+                    }
                     default: {
                         return false;
                     }
